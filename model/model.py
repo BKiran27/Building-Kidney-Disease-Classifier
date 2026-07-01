@@ -1,118 +1,270 @@
 """
-Kidney Disease Detection Model (PyTorch)
-=========================================
-Uses ResNet50 transfer learning to classify kidney CT scans into:
-  - Cyst
-  - Normal
-  - Stone
-  - Tumor
+model.py — KidneyScan AI  (v2 — High-Accuracy Architecture)
+==============================================================
+Upgrades over v1:
+  • CBAM (Channel + Spatial Attention) after backbone features
+  • GeM (Generalised Mean) Pooling — more powerful than AvgPool
+  • Deeper, regularised classification head with Residual skip
+  • Drop-path / stochastic depth support
+  • `predict_proba` supports Test-Time Augmentation (TTA)
 """
 
+import os
+import sys
+import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import models
 
-
-# ─── Constants ─────────────────────────────────────────────────────────────────
-IMAGE_SIZE  = (224, 224)
-NUM_CLASSES = 4
-CLASS_NAMES = ["Cyst", "Normal", "Stone", "Tumor"]
-
-# ImageNet normalization stats
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD  = [0.229, 0.224, 0.225]
+# Make project root importable when run directly
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from config import NUM_CLASSES, CLASS_NAMES, IMAGE_SIZE
 
 
-# ─── Model Definition ──────────────────────────────────────────────────────────
-class KidneyDiseaseNet(nn.Module):
+# ══════════════════════════════════════════════════════════════════════════════
+# Building Blocks
+# ══════════════════════════════════════════════════════════════════════════════
+
+class GeM(nn.Module):
     """
-    ResNet50-based kidney disease classifier.
-
-    Architecture:
-        ResNet50 backbone (fine-tune last 2 blocks)
-        → Adaptive Avg Pool
-        → FC(2048 → 512) + BN + ReLU + Dropout(0.4)
-        → FC(512 → 256)  + BN + ReLU + Dropout(0.3)
-        → FC(256 → 4, Softmax)
+    Generalised Mean Pooling.
+    Learns the optimal pooling exponent `p` during training.
+    Outperforms AvgPool for image classification & retrieval.
     """
-
-    def __init__(self, num_classes: int = NUM_CLASSES, unfreeze_last_n: int = 2):
+    def __init__(self, p: float = 3.0, eps: float = 1e-6):
         super().__init__()
-
-        # ── Load pretrained ResNet50 ────────────────────────────────────────
-        backbone = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
-
-        # Freeze all layers first
-        for param in backbone.parameters():
-            param.requires_grad = False
-
-        # Unfreeze the last `unfreeze_last_n` residual layers (layer3, layer4 …)
-        layers_to_unfreeze = list(backbone.children())[-unfreeze_last_n - 1: -1]
-        for layer in layers_to_unfreeze:
-            for param in layer.parameters():
-                param.requires_grad = True
-
-        # Remove the original classification head
-        self.backbone = nn.Sequential(*list(backbone.children())[:-1])  # up to AvgPool
-
-        # ── Custom classification head ─────────────────────────────────────
-        in_features = 2048  # ResNet50 output size
-
-        self.head = nn.Sequential(
-            nn.Flatten(),
-            # Block 1
-            nn.Linear(in_features, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.4),
-            # Block 2
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=0.3),
-            # Output
-            nn.Linear(256, num_classes),
-        )
+        self.p   = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.backbone(x)    # (B, 2048, 1, 1)
-        logits   = self.head(features) # (B, num_classes)
-        return logits
+        return F.adaptive_avg_pool2d(
+            x.clamp(min=self.eps).pow(self.p),
+            output_size=1
+        ).pow(1.0 / self.p)
 
-    def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
-        """Return class probabilities (softmax of logits)."""
-        with torch.no_grad():
-            return torch.softmax(self(x), dim=1)
+    def __repr__(self):
+        return f"GeM(p={self.p.data.item():.4f})"
 
+
+class ChannelAttention(nn.Module):
+    """CBAM channel attention — squeeze-and-excitation style."""
+    def __init__(self, in_channels: int, reduction: int = 16):
+        super().__init__()
+        hidden = max(in_channels // reduction, 8)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.mlp = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_channels, hidden, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden, in_channels, bias=False),
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg_out = self.mlp(self.avg_pool(x))
+        max_out = self.mlp(self.max_pool(x))
+        scale   = self.sigmoid(avg_out + max_out).unsqueeze(-1).unsqueeze(-1)
+        return x * scale
+
+
+class SpatialAttention(nn.Module):
+    """CBAM spatial attention — where to look."""
+    def __init__(self, kernel_size: int = 7):
+        super().__init__()
+        self.conv = nn.Conv2d(
+            2, 1, kernel_size=kernel_size,
+            padding=kernel_size // 2, bias=False
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg_out = x.mean(dim=1, keepdim=True)
+        max_out = x.max(dim=1, keepdim=True).values
+        cat     = torch.cat([avg_out, max_out], dim=1)
+        scale   = self.sigmoid(self.conv(cat))
+        return x * scale
+
+
+class CBAM(nn.Module):
+    """
+    Convolutional Block Attention Module.
+    Applies channel attention → spatial attention in sequence.
+    """
+    def __init__(self, in_channels: int, reduction: int = 16, kernel_size: int = 7):
+        super().__init__()
+        self.channel  = ChannelAttention(in_channels, reduction)
+        self.spatial  = SpatialAttention(kernel_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.channel(x)
+        x = self.spatial(x)
+        return x
+
+
+class ResidualHead(nn.Module):
+    """
+    Classification head with a residual (skip) connection.
+    Structure:
+        FC(2048 → 1024) + BN + GELU + Drop(0.5)  → FC(1024 → 512) + BN + GELU + Drop(0.4)
+        + Residual shortcut: FC(2048 → 512)        → FC(512 → num_classes)
+    """
+    def __init__(self, in_features: int = 2048, num_classes: int = NUM_CLASSES,
+                 drop1: float = 0.5, drop2: float = 0.4):
+        super().__init__()
+        mid = 1024
+        out = 512
+
+        # Main path
+        self.main = nn.Sequential(
+            nn.Linear(in_features, mid),
+            nn.BatchNorm1d(mid),
+            nn.GELU(),
+            nn.Dropout(drop1),
+            nn.Linear(mid, out),
+            nn.BatchNorm1d(out),
+            nn.GELU(),
+            nn.Dropout(drop2),
+        )
+        # Residual shortcut
+        self.shortcut = nn.Sequential(
+            nn.Linear(in_features, out, bias=False),
+            nn.BatchNorm1d(out),
+        )
+        # Final projection
+        self.classifier = nn.Linear(out, num_classes)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.main(x) + self.shortcut(x))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Main Model
+# ══════════════════════════════════════════════════════════════════════════════
+
+class KidneyDiseaseNet(nn.Module):
+    """
+    High-accuracy kidney disease classifier.
+
+    Architecture:
+        ResNet50 backbone (3-phase progressive fine-tuning)
+        → CBAM attention (channel + spatial)
+        → GeM Pooling
+        → ResidualHead (1024 → 512 + shortcut, then → 4 classes)
+
+    Freezing strategy (handled by train.py):
+        Phase 1: all backbone frozen,  head trainable
+        Phase 2: last 2 ResNet blocks + head trainable
+        Phase 3: entire network trainable (very small LR)
+    """
+
+    def __init__(self, num_classes: int = NUM_CLASSES):
+        super().__init__()
+
+        # ── Backbone ──────────────────────────────────────────────────────
+        resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
+
+        # Remove final FC + AvgPool
+        self.backbone = nn.Sequential(*list(resnet.children())[:-2])  # up to layer4, (B, 2048, H, W)
+
+        # Freeze everything initially (caller unfreezes progressively)
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+
+        # ── Attention ─────────────────────────────────────────────────────
+        self.cbam = CBAM(in_channels=2048, reduction=16, kernel_size=7)
+
+        # ── Pooling ───────────────────────────────────────────────────────
+        self.pool = GeM(p=3.0)
+
+        # ── Head ──────────────────────────────────────────────────────────
+        self.head = ResidualHead(in_features=2048, num_classes=num_classes)
+
+    # ── Forward ───────────────────────────────────────────────────────────
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feat   = self.backbone(x)          # (B, 2048, 7, 7)
+        feat   = self.cbam(feat)           # attention-weighted features
+        pooled = self.pool(feat).flatten(1) # (B, 2048)
+        return self.head(pooled)           # (B, num_classes)
+
+    @torch.no_grad()
+    def predict_proba(self, x: torch.Tensor, tta: bool = False) -> torch.Tensor:
+        """
+        Return class probabilities.
+        If tta=True, x is assumed to be a batch of augmented views;
+        probabilities are averaged across all views.
+        """
+        self.eval()
+        if tta and x.dim() == 4 and x.shape[0] > 1:
+            probs = torch.softmax(self(x), dim=1)   # (N_aug, C)
+            return probs.mean(dim=0, keepdim=True)  # (1, C)
+        return torch.softmax(self(x), dim=1)
+
+    # ── Phased unfreezing ─────────────────────────────────────────────────
+    def freeze_backbone(self):
+        """Phase 1: freeze entire backbone."""
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+
+    def unfreeze_top_blocks(self, n_blocks: int = 2):
+        """
+        Phase 2: unfreeze the last `n_blocks` residual layers.
+        ResNet50 blocks: layer1, layer2, layer3, layer4  (indices 4-7 in children)
+        """
+        children = list(self.backbone.children())
+        for child in children[-n_blocks:]:
+            for p in child.parameters():
+                if not isinstance(child, nn.BatchNorm2d):
+                    p.requires_grad = True
+
+    def unfreeze_all(self):
+        """Phase 3: unfreeze everything."""
+        for p in self.parameters():
+            p.requires_grad = True
+        # Keep BN layers frozen (they carry ImageNet statistics)
+        for m in self.backbone.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                for p in m.parameters():
+                    p.requires_grad = False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Helpers
+# ══════════════════════════════════════════════════════════════════════════════
 
 def build_model(num_classes: int = NUM_CLASSES) -> KidneyDiseaseNet:
-    """Build and return the KidneyDiseaseNet model."""
     return KidneyDiseaseNet(num_classes=num_classes)
 
 
 def count_parameters(model: nn.Module) -> dict:
-    """Count trainable and total parameters."""
     total     = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return {"total": total, "trainable": trainable, "frozen": total - trainable}
 
 
 def save_model(model: nn.Module, path: str) -> None:
-    """Save model weights to disk."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     torch.save(model.state_dict(), path)
-    print(f"💾  Model saved → {path}")
+    print(f"[save] Model -> {path}")
 
 
 def load_model(path: str, device: str = "cpu") -> KidneyDiseaseNet:
-    """Load a saved model from disk."""
     model = KidneyDiseaseNet()
-    model.load_state_dict(torch.load(path, map_location=device))
+    model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
     model.eval()
     return model
 
 
 def get_device() -> torch.device:
-    """Return the best available device."""
     if torch.cuda.is_available():
         return torch.device("cuda")
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -120,19 +272,28 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
-# ─── Sanity check ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     device = get_device()
-    print(f"Device: {device}")
-    model  = build_model().to(device)
-    params = count_parameters(model)
-    print(f"Total parameters    : {params['total']:,}")
-    print(f"Trainable parameters: {params['trainable']:,}")
-    print(f"Frozen  parameters  : {params['frozen']:,}")
+    m = build_model().to(device)
+    p = count_parameters(m)
+    print(f"Device              : {device}")
+    print(f"Total parameters    : {p['total']:,}")
+    print(f"Trainable (phase 1) : {p['trainable']:,}")
 
-    # Test forward pass
-    dummy = torch.randn(2, 3, 224, 224).to(device)
-    out   = model(dummy)
-    print(f"Output shape        : {out.shape}")  # (2, 4)
+    # Phase 2 test
+    m.unfreeze_top_blocks(2)
+    p2 = count_parameters(m)
+    print(f"Trainable (phase 2) : {p2['trainable']:,}")
+
+    # Phase 3 test
+    m.unfreeze_all()
+    p3 = count_parameters(m)
+    print(f"Trainable (phase 3) : {p3['trainable']:,}")
+
+    dummy = torch.randn(2, 3, *IMAGE_SIZE).to(device)
+    out   = m(dummy)
+    print(f"Output shape        : {out.shape}")
     probs = torch.softmax(out, dim=1)
-    print(f"Softmax sum         : {probs.sum(dim=1)}")  # should be ~[1., 1.]
+    print(f"Softmax sums        : {probs.sum(dim=1).tolist()}")
+    print("Architecture OK!")

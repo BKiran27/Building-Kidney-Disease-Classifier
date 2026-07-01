@@ -33,9 +33,10 @@ MODEL_DIR  = os.path.join(ROOT_DIR, "model")
 STATIC_DIR = os.path.join(ROOT_DIR, "static")
 MODEL_PATH = os.path.join(MODEL_DIR, "kidney_model.pth")
 
-sys.path.insert(0, MODEL_DIR)
-from model   import CLASS_NAMES, IMAGE_SIZE, load_model, get_device, IMAGENET_MEAN, IMAGENET_STD
-from predict import CLASS_DESCRIPTIONS, SEVERITY, preprocess_image
+sys.path.insert(0, ROOT_DIR)
+from config import CLASS_NAMES, IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD
+from model.model import load_model, get_device
+from model.predict import CLASS_DESCRIPTIONS, SEVERITY, preprocess_image
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="")

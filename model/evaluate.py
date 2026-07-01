@@ -11,6 +11,12 @@ import sys
 import argparse
 import json
 import numpy as np
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -31,8 +37,9 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-sys.path.insert(0, os.path.dirname(__file__))
-from model import CLASS_NAMES, IMAGE_SIZE, load_model, get_device, IMAGENET_MEAN, IMAGENET_STD
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from config import CLASS_NAMES, IMAGE_SIZE, IMAGENET_MEAN, IMAGENET_STD
+from model.model import load_model, get_device
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")

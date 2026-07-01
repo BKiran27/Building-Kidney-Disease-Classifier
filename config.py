@@ -56,6 +56,33 @@ SEVERITY = {
     "Stone":  "Moderate Risk",
 }
 
+CLASS_DESCRIPTIONS = {
+    "Normal": (
+        "No kidney abnormalities detected. "
+        "The kidney tissue appears healthy with normal structure and density."
+    ),
+    "Cyst": (
+        "A fluid-filled sac (cyst) detected in the kidney. "
+        "Most kidney cysts are benign but should be monitored by a specialist."
+    ),
+    "Tumor": (
+        "Abnormal tissue growth (tumor) detected. "
+        "Immediate consultation with a urologist or oncologist is strongly recommended."
+    ),
+    "Stone": (
+        "Calcification (kidney stone) detected. "
+        "Stones may cause pain and urinary complications. "
+        "Consult a urologist for treatment options."
+    ),
+}
+
+SEVERITY = {
+    "Normal": "Low Risk",
+    "Cyst":   "Moderate Risk",
+    "Tumor":  "High Risk",
+    "Stone":  "Moderate Risk",
+}
+
 # ─── Image ────────────────────────────────────────────────────────────────────
 IMAGE_SIZE   = (224, 224)
 INPUT_SHAPE  = (3, 224, 224)   # PyTorch CHW format
