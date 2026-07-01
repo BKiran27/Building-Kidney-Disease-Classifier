@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  kidneyai:
+    build: .
+    container_name: kidneyai
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./model/kidney_model.pth:/app/model/kidney_model.pth:ro
+      - ./model/outputs:/app/model/outputs
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

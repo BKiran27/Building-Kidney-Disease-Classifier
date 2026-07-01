@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KidneyScan AI — Deep Learning Kidney Disease Detection</title>
+  <meta name="description" content="AI-powered kidney disease detection from CT scans using deep learning. Detects Cyst, Tumor, Stone, and Normal kidney conditions." />
+  <meta name="keywords" content="kidney disease detection, AI, deep learning, CT scan, medical imaging" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ──────────────── ANIMATED BACKGROUND ──────────────── -->
+  <div class="bg-animation">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- ──────────────── NAVIGATION ──────────────── -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-brand">
+      <div class="nav-logo">
+        <i class="fa-solid fa-kidney"></i>
+      </div>
+      <span class="nav-title">KidneyScan<span class="brand-accent"> AI</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="#detector"  class="nav-link">Detector</a>
+      <a href="#how-it-works" class="nav-link">How It Works</a>
+      <a href="#diseases"  class="nav-link">Diseases</a>
+      <div class="api-status" id="api-status-badge">
+        <span class="status-dot"></span>
+        <span class="status-text">Connecting…</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ──────────────── HERO ──────────────── -->
+  <header class="hero" id="home">
+    <div class="hero-content">
+      <div class="hero-badge">
+        <i class="fa-solid fa-brain"></i>
+        Powered by ResNet50 Deep Learning
+      </div>
+      <h1 class="hero-title">
+        Kidney Disease<br />
+        <span class="gradient-text">Detection AI</span>
+      </h1>
+      <p class="hero-subtitle">
+        Upload a kidney CT scan and get instant AI-powered analysis
+        detecting <strong>Cysts</strong>, <strong>Tumors</strong>,
+        <strong>Stones</strong>, and <strong>Normal</strong> tissue —
+        in seconds.
+      </p>
+      <div class="hero-stats">
+        <div class="stat-item">
+          <span class="stat-num">4</span>
+          <span class="stat-label">Disease Classes</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-num">ResNet50</span>
+          <span class="stat-label">Architecture</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-num">224×224</span>
+          <span class="stat-label">Input Size</span>
+        </div>
+      </div>
+      <a href="#detector" class="hero-cta">
+        <i class="fa-solid fa-microscope"></i>
+        Analyze CT Scan
+      </a>
+    </div>
+    <div class="hero-visual">
+      <div class="scan-viewer">
+        <div class="scan-header">
+          <div class="scan-dot red"></div>
+          <div class="scan-dot yellow"></div>
+          <div class="scan-dot green"></div>
+          <span>CT Scan Analysis</span>
+        </div>
+        <div class="scan-body">
+          <div class="scan-placeholder">
+            <div class="scan-ring ring-1"></div>
+            <div class="scan-ring ring-2"></div>
+            <div class="scan-ring ring-3"></div>
+            <i class="fa-solid fa-kidney scan-icon"></i>
+          </div>
+          <div class="scan-lines">
+            <div class="scan-line" style="width:90%"></div>
+            <div class="scan-line" style="width:65%"></div>
+            <div class="scan-line" style="width:80%"></div>
+            <div class="scan-line" style="width:50%"></div>
+            <div class="scan-line" style="width:75%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ──────────────── DETECTOR SECTION ──────────────── -->
+  <section class="section detector-section" id="detector">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge"><i class="fa-solid fa-upload"></i> Upload & Analyze</div>
+        <h2 class="section-title">CT Scan Analyzer</h2>
+        <p class="section-sub">Upload a kidney CT scan image to receive an AI-powered disease classification.</p>
+      </div>
+
+      <div class="detector-grid">
+        <!-- Upload Panel -->
+        <div class="panel upload-panel" id="upload-panel">
+          <div class="upload-zone" id="upload-zone" role="button" aria-label="Upload CT scan image">
+            <input type="file" id="file-input" accept="image/*" hidden />
+            <div class="upload-idle" id="upload-idle">
+              <div class="upload-icon-wrap">
+                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+              </div>
+              <p class="upload-primary">Drag & drop CT scan here</p>
+              <p class="upload-secondary">or click to browse</p>
+              <div class="upload-formats">
+                <span>JPG</span><span>PNG</span><span>BMP</span><span>TIFF</span>
+              </div>
+            </div>
+            <div class="upload-preview hidden" id="upload-preview">
+              <img id="preview-img" src="" alt="CT scan preview" />
+              <div class="preview-overlay">
+                <i class="fa-solid fa-rotate"></i>
+                <span>Change image</span>
+              </div>
+            </div>
+          </div>
+
+          <button class="analyze-btn" id="analyze-btn" disabled>
+            <span class="btn-text"><i class="fa-solid fa-wand-magic-sparkles"></i> Analyze CT Scan</span>
+            <span class="btn-loading hidden"><i class="fa-solid fa-circle-notch fa-spin"></i> Analyzing…</span>
+          </button>
+
+          <div class="upload-hint">
+            <i class="fa-solid fa-circle-info"></i>
+            For best results, use axial CT scan images with clear kidney visibility.
+          </div>
+        </div>
+
+        <!-- Results Panel -->
+        <div class="panel results-panel" id="results-panel">
+          <div class="results-idle" id="results-idle">
+            <div class="idle-icon"><i class="fa-solid fa-chart-simple"></i></div>
+            <p class="idle-title">Results will appear here</p>
+            <p class="idle-sub">Upload a CT scan and click Analyze</p>
+          </div>
+
+          <div class="results-content hidden" id="results-content">
+            <!-- Prediction Badge -->
+            <div class="prediction-header">
+              <div class="prediction-badge" id="prediction-badge">
+                <i class="fa-solid fa-circle-check" id="pred-icon"></i>
+                <div>
+                  <span class="pred-label">Detected Condition</span>
+                  <span class="pred-class" id="pred-class">—</span>
+                </div>
+              </div>
+              <div class="confidence-ring">
+                <svg viewBox="0 0 80 80" class="ring-svg">
+                  <circle cx="40" cy="40" r="32" class="ring-bg"/>
+                  <circle cx="40" cy="40" r="32" class="ring-fill" id="ring-fill"/>
+                </svg>
+                <div class="ring-label">
+                  <span class="ring-pct" id="ring-pct">0%</span>
+                  <span class="ring-sub">confidence</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Severity -->
+            <div class="severity-bar" id="severity-bar">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              <span id="severity-text">—</span>
+            </div>
+
+            <!-- Description -->
+            <div class="result-description" id="result-description"></div>
+
+            <!-- Probability Bars -->
+            <div class="prob-section">
+              <h4 class="prob-title"><i class="fa-solid fa-chart-bar"></i> Class Probabilities</h4>
+              <div class="prob-bars" id="prob-bars"></div>
+            </div>
+
+            <!-- Demo warning -->
+            <div class="demo-warning hidden" id="demo-warning">
+              <i class="fa-solid fa-flask"></i>
+              <strong>Demo Mode:</strong> Model not yet trained. Run <code>python model/train.py --demo</code> for real predictions.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── HOW IT WORKS ──────────────── -->
+  <section class="section how-section" id="how-it-works">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge"><i class="fa-solid fa-gears"></i> Pipeline</div>
+        <h2 class="section-title">How It Works</h2>
+        <p class="section-sub">Four stages from raw CT scan to clinical insight</p>
+      </div>
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">01</div>
+          <div class="step-icon"><i class="fa-solid fa-image"></i></div>
+          <h3>Image Upload</h3>
+          <p>CT scan images are accepted in JPG, PNG, BMP, or TIFF formats and preprocessed to 224×224 pixels.</p>
+        </div>
+        <div class="step-connector"><i class="fa-solid fa-arrow-right"></i></div>
+        <div class="step-card">
+          <div class="step-num">02</div>
+          <div class="step-icon"><i class="fa-solid fa-layer-group"></i></div>
+          <h3>Feature Extraction</h3>
+          <p>ResNet50 backbone extracts deep visual features from the image using 50 convolutional layers.</p>
+        </div>
+        <div class="step-connector"><i class="fa-solid fa-arrow-right"></i></div>
+        <div class="step-card">
+          <div class="step-num">03</div>
+          <div class="step-icon"><i class="fa-solid fa-brain"></i></div>
+          <h3>Classification</h3>
+          <p>A custom neural network head classifies features into one of four kidney conditions.</p>
+        </div>
+        <div class="step-connector"><i class="fa-solid fa-arrow-right"></i></div>
+        <div class="step-card">
+          <div class="step-num">04</div>
+          <div class="step-icon"><i class="fa-solid fa-file-medical"></i></div>
+          <h3>Clinical Report</h3>
+          <p>Probability scores, risk level, and a clinical description are returned instantly.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── DISEASE CLASSES ──────────────── -->
+  <section class="section diseases-section" id="diseases">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge"><i class="fa-solid fa-stethoscope"></i> Knowledge Base</div>
+        <h2 class="section-title">Disease Categories</h2>
+        <p class="section-sub">The model detects four distinct kidney conditions from CT scans</p>
+      </div>
+      <div class="disease-grid">
+        <div class="disease-card card-normal">
+          <div class="disease-icon"><i class="fa-solid fa-check-circle"></i></div>
+          <div class="disease-tag">Low Risk</div>
+          <h3>Normal</h3>
+          <p>Healthy kidney tissue with no detectable abnormalities. Normal structure, size, and density confirmed.</p>
+          <div class="disease-footer">
+            <span><i class="fa-solid fa-percent"></i> Most Common</span>
+          </div>
+        </div>
+        <div class="disease-card card-cyst">
+          <div class="disease-icon"><i class="fa-solid fa-circle-dot"></i></div>
+          <div class="disease-tag">Moderate</div>
+          <h3>Cyst</h3>
+          <p>Fluid-filled sacs in the kidney. Usually benign but require periodic monitoring by a urologist.</p>
+          <div class="disease-footer">
+            <span><i class="fa-solid fa-calendar-check"></i> Monitor Regularly</span>
+          </div>
+        </div>
+        <div class="disease-card card-stone">
+          <div class="disease-icon"><i class="fa-solid fa-diamond"></i></div>
+          <div class="disease-tag">Moderate</div>
+          <h3>Stone</h3>
+          <p>Calcified mineral deposits causing obstruction. Can cause severe pain and require medical intervention.</p>
+          <div class="disease-footer">
+            <span><i class="fa-solid fa-user-doctor"></i> Consult Urologist</span>
+          </div>
+        </div>
+        <div class="disease-card card-tumor">
+          <div class="disease-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+          <div class="disease-tag">High Risk</div>
+          <h3>Tumor</h3>
+          <p>Abnormal tissue growth requiring immediate specialist evaluation. Early detection dramatically improves outcomes.</p>
+          <div class="disease-footer">
+            <span><i class="fa-solid fa-hospital"></i> Seek Immediate Care</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── MODEL ARCHITECTURE ──────────────── -->
+  <section class="section arch-section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge"><i class="fa-solid fa-microchip"></i> Architecture</div>
+        <h2 class="section-title">Model Architecture</h2>
+        <p class="section-sub">Transfer learning from ImageNet to medical imaging</p>
+      </div>
+      <div class="arch-diagram">
+        <div class="arch-block input-block">
+          <i class="fa-solid fa-image"></i>
+          <span class="arch-label">Input</span>
+          <span class="arch-detail">224×224×3</span>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-block resnet-block">
+          <i class="fa-solid fa-network-wired"></i>
+          <span class="arch-label">ResNet50</span>
+          <span class="arch-detail">23.5M params</span>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-block gap-block">
+          <i class="fa-solid fa-compress"></i>
+          <span class="arch-label">Global Avg Pool</span>
+          <span class="arch-detail">2048D</span>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-block dense-block">
+          <i class="fa-solid fa-circle-nodes"></i>
+          <span class="arch-label">Dense + Dropout</span>
+          <span class="arch-detail">512 → 256</span>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-block output-block">
+          <i class="fa-solid fa-chart-pie"></i>
+          <span class="arch-label">Output</span>
+          <span class="arch-detail">4 classes</span>
+        </div>
+      </div>
+
+      <!-- Model info cards -->
+      <div class="model-stats-grid" id="model-stats-grid">
+        <div class="model-stat-card">
+          <i class="fa-solid fa-cubes"></i>
+          <div>
+            <span class="mstat-val" id="total-params">—</span>
+            <span class="mstat-label">Total Parameters</span>
+          </div>
+        </div>
+        <div class="model-stat-card">
+          <i class="fa-solid fa-ruler-combined"></i>
+          <div>
+            <span class="mstat-val">224 × 224</span>
+            <span class="mstat-label">Input Resolution</span>
+          </div>
+        </div>
+        <div class="model-stat-card">
+          <i class="fa-solid fa-tag"></i>
+          <div>
+            <span class="mstat-val">4</span>
+            <span class="mstat-label">Output Classes</span>
+          </div>
+        </div>
+        <div class="model-stat-card">
+          <i class="fa-solid fa-bolt"></i>
+          <div>
+            <span class="mstat-val">Adam</span>
+            <span class="mstat-label">Optimizer</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── DISCLAIMER / FOOTER ──────────────── -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="disclaimer">
+        <i class="fa-solid fa-shield-halved"></i>
+        <div>
+          <strong>Medical Disclaimer:</strong>
+          This AI tool is intended for research and educational purposes only. It is
+          <em>not</em> a substitute for professional medical advice, diagnosis, or
+          treatment. Always consult a qualified healthcare provider.
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>KidneyScan AI &copy; 2025 — Deep Learning Medical Imaging</span>
+        <span>Built with TensorFlow &amp; ResNet50</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
